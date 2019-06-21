@@ -12,6 +12,13 @@ import java.awt.Graphics2D;
 import java.awt.event.KeyEvent;
 import java.awt.event.KeyListener;
 import java.awt.image.BufferedImage;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.util.ArrayList;
 import javax.swing.JPanel;
 
@@ -35,16 +42,16 @@ public class GamePanel extends JPanel implements Runnable, KeyListener {
     private final int SIZE = 10;
     private Entity head,apple;
     private ArrayList<Entity> snake;
-    private int score;
-    private int level;
-    private boolean gameover;
+    private int score, level, highscore;
+    private boolean gameover, start;
     
     
     //movement
     private int dx,dy;
     
     //key input
-    private boolean up,down,right,left,start;
+    private enum key {up,down,right,left, none};
+    private key currentKey;
     
     public GamePanel() {
        setPreferredSize(new Dimension(WIDTH, HEIGHT));
@@ -65,25 +72,38 @@ public class GamePanel extends JPanel implements Runnable, KeyListener {
     @Override
     public void keyPressed(KeyEvent e){   
         int k = e.getKeyCode();
-        
-        if(k == KeyEvent.VK_UP) up = true;
-        if(k == KeyEvent.VK_DOWN) down = true;
-        if(k == KeyEvent.VK_LEFT) left = true;
-        if(k == KeyEvent.VK_RIGHT) right = true;
-        if(k == KeyEvent.VK_ENTER) start = true;
-        
+        switch (k) {
+            case KeyEvent.VK_UP:
+                currentKey = key.up;
+                break;
+            case KeyEvent.VK_DOWN:
+                currentKey = key.down;
+                break;
+            case KeyEvent.VK_LEFT:
+                currentKey = key.left;
+                break;
+            case KeyEvent.VK_RIGHT:    
+                currentKey = key.right;
+                break;
+            case KeyEvent.VK_ENTER:    
+                currentKey = key.left;
+                start = true;
+                break;
+        }
     }
     
     @Override
     public void keyReleased(KeyEvent e){    
         
         int k = e.getKeyCode();
-        
-        if(k == KeyEvent.VK_UP) up = false;
-        if(k == KeyEvent.VK_DOWN) down = false;
-        if(k == KeyEvent.VK_LEFT) left = false;
-        if(k == KeyEvent.VK_RIGHT) right = false;
-        if(k == KeyEvent.VK_ENTER) start = false;
+        switch (k) {
+            case KeyEvent.VK_UP:
+            case KeyEvent.VK_DOWN:
+            case KeyEvent.VK_LEFT:
+            case KeyEvent.VK_RIGHT:
+            case KeyEvent.VK_ENTER:
+                currentKey = key.none;
+        }
     }
     
     @Override
@@ -93,10 +113,9 @@ public class GamePanel extends JPanel implements Runnable, KeyListener {
     @Override
     public void run(){
         if(running) return;
-        init();   
-        long startTime;
-        long elapsed;
-        long wait;
+        init();
+        loadData();
+        long startTime, elapsed, wait;
         while(running){
             startTime = System.nanoTime();
             
@@ -109,20 +128,56 @@ public class GamePanel extends JPanel implements Runnable, KeyListener {
             if(wait > 0){
                 try{
                     Thread.sleep(wait);
-                }catch(Exception e){
+                }catch(InterruptedException e){
                     e.printStackTrace();
                 }
             }
-            
-            
         }
     }
+    
     private void init() {
         image = new BufferedImage(WIDTH,HEIGHT,BufferedImage.TYPE_INT_ARGB);
         g2d= image.createGraphics();
         running = true;
         setUplevel();
     }
+    
+    private void loadData() {
+        String home = System.getProperty("user.home");
+        File save = new File(home+File.separator+".snake.dat");
+        if(save.exists()) {
+            try {
+                ObjectInputStream in = new ObjectInputStream(new FileInputStream(save));
+                highscore = (Integer)in.readObject();
+                in.close();
+            } catch (FileNotFoundException e) {
+                System.out.println("No previous data");
+            } catch (IOException e) {
+                e.printStackTrace();
+                System.out.println("Error loading data");
+            } catch (ClassCastException e) {
+                e.printStackTrace();
+                System.out.println("Error loading data");
+            } catch (ClassNotFoundException e) {
+                e.printStackTrace();
+                System.out.println("Error loading data");
+            }
+        } else highscore = 0;
+    }
+    
+    private void saveData() {
+        String home = System.getProperty("user.home");
+        File save = new File(home+File.separator+".snake.dat");
+        try {
+            ObjectOutputStream out = new ObjectOutputStream(new FileOutputStream(save));
+            out.writeObject(highscore);
+            out.flush(); out.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+            System.out.println("Error saving data");
+        }
+    }
+    
     private void setUplevel(){
         snake = new ArrayList<Entity>();
         head = new Entity(SIZE);
@@ -157,19 +212,19 @@ public class GamePanel extends JPanel implements Runnable, KeyListener {
             }
             return;
         }
-        if( up && dy ==0){
+        if(currentKey == key.up && dy ==0){
             dy = -SIZE;
             dx = 0;
         }
-        if( down && dy ==0){
+        if( currentKey == key.down && dy ==0){
             dy = SIZE;
             dx = 0;
         }
-        if( left && dx ==0){
+        if( currentKey == key.left && dx ==0){
             dy = 0;
             dx = -SIZE;
         }
-        if( right && dx ==0 && dy!= 0 ){
+        if( currentKey == key.right && dx ==0 && dy!= 0 ){
             dy = 0;
             dx = SIZE;
         }
@@ -195,6 +250,7 @@ public class GamePanel extends JPanel implements Runnable, KeyListener {
         
         if(apple.isCollsion(head)){
             score++;
+            highscore = highscore < score ? score : highscore;
             setApple();  
             
             Entity e = new Entity(SIZE);
@@ -208,11 +264,14 @@ public class GamePanel extends JPanel implements Runnable, KeyListener {
         }
         
         
-        
-        if(head.getX() < 0) head.setX(WIDTH);
+        //code to allow snake to go through walls
+        /*if(head.getX() < 0) head.setX(WIDTH);
         if(head.getY() < 0) head.setY(HEIGHT);
         if(head.getX() > WIDTH) head.setX(0);
-        if(head.getY() > HEIGHT) head.setY(0);
+        if(head.getY() > HEIGHT) head.setY(0);*/
+        
+        //code for gameover if snake hit wall
+        gameover = (head.getX() < 0 || head.getY() < 0 || head.getX() >= WIDTH || head.getY() >= HEIGHT || gameover);
     }
         
 
@@ -233,11 +292,12 @@ public class GamePanel extends JPanel implements Runnable, KeyListener {
         apple.render(g2d);
         if(gameover){
             g2d.drawString("GAMEOVER! ",150,200);
-            
+            saveData();
         }
         
         g2d.setColor(Color.WHITE);
-        g2d.drawString("Score : " + score  + "      Level : " +  level,10,10);
+        String heading = String.format("%-10s%-12d%-10s%-12d%-14s%d","Score:",score,"Level:",level,"Highscore:",highscore);
+        g2d.drawString(heading,10,10);
         if(dx == 0 && dy == 0 ){
             g2d.drawString("Let's Play! ",150,200);
             
